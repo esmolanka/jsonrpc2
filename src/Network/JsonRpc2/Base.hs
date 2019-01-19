@@ -16,6 +16,7 @@ import Control.Monad.Except
 import Data.Aeson
 import qualified Data.Aeson.Types as Aeson (parseEither)
 import qualified Data.Attoparsec.ByteString.Char8 as Atto
+import Data.Attoparsec.ByteString.Char8 ((<?>))
 import qualified Data.ByteString.Builder as BL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -32,14 +33,14 @@ import Network.JsonRpc2.Types
 parseJsonPacket :: FromJSON a => Atto.Parser a
 parseJsonPacket = do
   len <-
-    Atto.string "Content-Length:" *> Atto.skipSpace
-    *> Atto.decimal
-    <* Atto.char '\n' <* Atto.char '\r'
-  value <-
-    Atto.char '\n' *> Atto.char '\r' *> Atto.take len
+    (Atto.string "Content-Length:" *> Atto.skipSpace <?> "content-length keyword")
+    *> (Atto.decimal <?> "content-length argument")
+  value <- crlf *> crlf *> (Atto.take len <?> "json")
   case eitherDecodeStrict' value of
     Left err -> fail $ "malformed request, " ++ err
     Right v  -> return v
+  where
+    crlf = Atto.char '\n' <* Atto.char '\r' <?> "CRLF"
 
 writeJsonPacket :: ToJSON a => a -> BL.Builder
 writeJsonPacket a =
