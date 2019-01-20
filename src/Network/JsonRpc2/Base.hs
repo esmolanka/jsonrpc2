@@ -11,12 +11,13 @@ import System.IO.Streams (InputStream, OutputStream)
 import qualified System.IO.Streams as Streams
 import qualified System.IO.Streams.Attoparsec.ByteString as Streams
 
+import Control.Applicative
 import Control.Monad.Except
 
 import Data.Aeson
 import qualified Data.Aeson.Types as Aeson (parseEither)
-import qualified Data.Attoparsec.ByteString.Char8 as Atto
 import Data.Attoparsec.ByteString.Char8 ((<?>))
+import qualified Data.Attoparsec.ByteString.Char8 as Atto
 import qualified Data.ByteString.Builder as BL
 import qualified Data.ByteString.Char8 as BS
 import qualified Data.ByteString.Lazy.Char8 as BL
@@ -42,6 +43,9 @@ parseJsonPacket = do
   where
     crlf = (Atto.char '\r' <* Atto.char '\n') <?> "CRLF"
 
+parseJsonPacket' :: FromJSON a => Atto.Parser (Maybe a)
+parseJsonPacket' = (Nothing <$ Atto.endOfInput) <|> (Just <$> parseJsonPacket)
+
 writeJsonPacket :: ToJSON a => a -> BL.Builder
 writeJsonPacket a =
   let json = encode a
@@ -50,8 +54,16 @@ writeJsonPacket a =
      BL.byteString "\r\n\r\n" <>
      BL.lazyByteString json <>
      BL.byteString "\r\n"
+
+
+packetStream
+  :: (FromJSON a, ToJSON b) =>
+     (InputStream a -> IO (InputStream b))
+  -> InputStream BS.ByteString
+  -> OutputStream BS.ByteString
+  -> IO ()
 packetStream process inp out = do
-  requests <- process =<< Streams.parserToInputStream (Just <$> parseJsonPacket) inp
+  requests <- process =<< Streams.parserToInputStream parseJsonPacket' inp
   responds <- Streams.contramap writeJsonPacket =<< Streams.builderStream out
   Streams.connect requests responds
 
@@ -64,6 +76,12 @@ data RequestHandler m =
 
 data NotificationHandler m =
   forall i. (FromJSON i) => NotificationHandler (i -> m ())
+
+(~:) :: (FromJSON i, ToJSON o, ToJSON e) => k -> (i -> ExceptT (RpcError e) m o) -> M.Map k (RequestHandler m)
+(~:) method handler = M.singleton method (RequestHandler handler)
+
+(^:) :: FromJSON i => k -> (i -> m ()) -> M.Map k (NotificationHandler m)
+(^:) method handler = M.singleton method (NotificationHandler handler)
 
 handleRequest :: (Monad m) => M.Map Method (RequestHandler m) -> RequestId -> Method -> Maybe Value -> m (Response Value Value)
 handleRequest methods requestId method params =

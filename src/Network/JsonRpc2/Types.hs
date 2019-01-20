@@ -18,6 +18,7 @@ import Data.Bifoldable
 import Data.Bifunctor
 import Data.Bitraversable
 import Data.Maybe
+import Data.String
 import Data.Text (Text)
 
 data RequestId
@@ -26,7 +27,7 @@ data RequestId
   deriving (Eq, Ord, Show)
 
 newtype Method = Method Text
-  deriving (Eq, Ord, Show, FromJSON, ToJSON)
+  deriving (Eq, Ord, Show, FromJSON, ToJSON, IsString)
 
 data Request r
   = Request
