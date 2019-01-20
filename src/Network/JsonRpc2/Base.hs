@@ -35,22 +35,21 @@ parseJsonPacket = do
   len <-
     (Atto.string "Content-Length:" *> Atto.skipSpace <?> "content-length keyword")
     *> (Atto.decimal <?> "content-length argument")
-  value <- crlf *> crlf *> (Atto.take len <?> "json")
+  value <- crlf *> crlf *> (Atto.take len <?> "json") <* Atto.skipSpace
   case eitherDecodeStrict' value of
     Left err -> fail $ "malformed request, " ++ err
     Right v  -> return v
   where
-    crlf = Atto.char '\n' <* Atto.char '\r' <?> "CRLF"
+    crlf = (Atto.char '\r' <* Atto.char '\n') <?> "CRLF"
 
 writeJsonPacket :: ToJSON a => a -> BL.Builder
 writeJsonPacket a =
   let json = encode a
       len  = BL.length json
-  in BL.byteString "Content-Length: " <> BL.int64Dec len <>
-     BL.byteString "\n\r\n\r" <>
-     BL.lazyByteString json
-
-packetStream :: (FromJSON a, ToJSON b) => (InputStream a -> IO (InputStream b)) -> InputStream BS.ByteString -> OutputStream BS.ByteString -> IO ()
+  in BL.byteString "Content-Length: " <> BL.int64Dec (len + 2) <>
+     BL.byteString "\r\n\r\n" <>
+     BL.lazyByteString json <>
+     BL.byteString "\r\n"
 packetStream process inp out = do
   requests <- process =<< Streams.parserToInputStream (Just <$> parseJsonPacket) inp
   responds <- Streams.contramap writeJsonPacket =<< Streams.builderStream out
